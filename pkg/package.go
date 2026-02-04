@@ -280,15 +280,14 @@ type textSig struct {
 	KeyID      [8]byte
 }
 
-type pgp4Sig struct {
-	_          [2]byte
-	PubKeyAlgo uint8
-	HashAlgo   uint8
-	_          [17]byte
-	KeyID      [8]byte
-	_          [2]byte
-	Date       int32
-}
+// OpenPGP signature subpacket types (RFC 4880, Section 5.2.3.1)
+// Reference: https://www.rfc-editor.org/rfc/rfc4880#section-5.2.3.1
+const (
+	// pgpSubpacketSignatureCreationTime contains a 4-octet time field (MUST be in hashed area)
+	pgpSubpacketSignatureCreationTime = 2
+	// pgpSubpacketIssuerKeyID contains an 8-octet Key ID of the key issuing the signature
+	pgpSubpacketIssuerKeyID = 16
+)
 
 var pubKeyLookup = map[uint8]string{
 	0x01: "RSA",
@@ -347,15 +346,81 @@ func decodePGPSig(version uint8, r io.Reader) (string, error) {
 
 	switch {
 	case version > 0x15:
-		sig := pgp4Sig{}
-		err := binary.Read(r, binary.BigEndian, &sig)
-		if err != nil {
-			return "", fmt.Errorf("invalid PGP v4 signature on decode: %w", err)
+		// For version > 0x15, the next byte is the actual OpenPGP v4 signature version,
+		// followed by the v4 signature packet body.
+		//
+		// OpenPGP v4 signature packet format (RFC 4880, Section 5.2.3):
+		// Reference: https://www.rfc-editor.org/rfc/rfc4880#section-5.2.3
+		//
+		// - 1 byte: version (0x04)
+		// - 1 byte: signature type
+		// - 1 byte: public-key algorithm
+		// - 1 byte: hash algorithm
+		// - 2 bytes: hashed subpacket data length
+		// - N bytes: hashed subpacket data (contains signature creation time, subpacket type 2)
+		// - 2 bytes: unhashed subpacket data length
+		// - M bytes: unhashed subpacket data (contains issuer key ID, subpacket type 16)
+		// - 2 bytes: left 16 bits of signed hash value
+		// - signature MPI(s)
+
+		var v4Version, sigType, pubKeyAlgoByte, hashAlgoByte uint8
+		if err := binary.Read(r, binary.BigEndian, &v4Version); err != nil {
+			return "", fmt.Errorf("failed to read v4 version: %w", err)
 		}
-		pubKeyAlgo = pubKeyLookup[sig.PubKeyAlgo]
-		hashAlgo = hashLookup[sig.HashAlgo]
-		pkgDate = time.Unix(int64(sig.Date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
-		keyId = sig.KeyID
+		if err := binary.Read(r, binary.BigEndian, &sigType); err != nil {
+			return "", fmt.Errorf("failed to read signature type: %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &pubKeyAlgoByte); err != nil {
+			return "", fmt.Errorf("failed to read public key algorithm: %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &hashAlgoByte); err != nil {
+			return "", fmt.Errorf("failed to read hash algorithm: %w", err)
+		}
+		pubKeyAlgo = pubKeyLookup[pubKeyAlgoByte]
+		hashAlgo = hashLookup[hashAlgoByte]
+
+		// Read hashed subpacket length and data
+		var hashedLen uint16
+		if err := binary.Read(r, binary.BigEndian, &hashedLen); err != nil {
+			return "", fmt.Errorf("failed to read hashed subpacket length: %w", err)
+		}
+		hashedData := make([]byte, hashedLen)
+		if _, err := io.ReadFull(r, hashedData); err != nil {
+			return "", fmt.Errorf("failed to read hashed subpackets: %w", err)
+		}
+
+		// Parse hashed subpackets for signature creation time
+		var creationTime int64
+		parseSubpackets(hashedData, func(subpacketType byte, data []byte) {
+			if subpacketType == pgpSubpacketSignatureCreationTime && len(data) >= 4 {
+				creationTime = int64(binary.BigEndian.Uint32(data[:4]))
+			}
+		})
+
+		// Read unhashed subpacket length and data
+		var unhashedLen uint16
+		if err := binary.Read(r, binary.BigEndian, &unhashedLen); err != nil {
+			return "", fmt.Errorf("failed to read unhashed subpacket length: %w", err)
+		}
+		unhashedData := make([]byte, unhashedLen)
+		if _, err := io.ReadFull(r, unhashedData); err != nil {
+			return "", fmt.Errorf("failed to read unhashed subpackets: %w", err)
+		}
+
+		// Parse unhashed subpackets for issuer key ID
+		parseSubpackets(unhashedData, func(subpacketType byte, data []byte) {
+			if subpacketType == pgpSubpacketIssuerKeyID && len(data) >= 8 {
+				copy(keyId[:], data[:8])
+			}
+			// Also check for creation time in unhashed if not found in hashed
+			if subpacketType == pgpSubpacketSignatureCreationTime && len(data) >= 4 && creationTime == 0 {
+				creationTime = int64(binary.BigEndian.Uint32(data[:4]))
+			}
+		})
+
+		if creationTime > 0 {
+			pkgDate = time.Unix(creationTime, 0).UTC().Format("Mon Jan _2 15:04:05 2006")
+		}
 
 	default:
 		sig := pgpSig{}
@@ -369,6 +434,49 @@ func decodePGPSig(version uint8, r io.Reader) (string, error) {
 		keyId = sig.KeyID
 	}
 	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKeyAlgo, hashAlgo, pkgDate, keyId), nil
+}
+
+// parseSubpackets iterates over OpenPGP subpackets and calls the handler for each one.
+// Subpacket format per RFC 4880, Section 5.2.3.1:
+// Reference: https://www.rfc-editor.org/rfc/rfc4880#section-5.2.3.1
+//
+// Each subpacket consists of:
+// - length (1, 2, or 5 bytes using OpenPGP new-format encoding)
+// - type (1 byte, bit 7 is "critical" flag)
+// - data (length-1 bytes)
+func parseSubpackets(data []byte, handler func(subpacketType byte, data []byte)) {
+	for len(data) > 0 {
+		// Read subpacket length (variable-length encoding)
+		var subpacketLen int
+		var headerLen int
+
+		if data[0] < 192 {
+			subpacketLen = int(data[0])
+			headerLen = 1
+		} else if data[0] < 255 {
+			if len(data) < 2 {
+				return
+			}
+			subpacketLen = int(data[0]-192)<<8 + int(data[1]) + 192
+			headerLen = 2
+		} else {
+			if len(data) < 5 {
+				return
+			}
+			subpacketLen = int(binary.BigEndian.Uint32(data[1:5]))
+			headerLen = 5
+		}
+
+		if len(data) < headerLen+subpacketLen || subpacketLen < 1 {
+			return
+		}
+
+		subpacketType := data[headerLen] & 0x7f // mask off critical bit
+		subpacketData := data[headerLen+1 : headerLen+subpacketLen]
+		handler(subpacketType, subpacketData)
+
+		data = data[headerLen+subpacketLen:]
+	}
 }
 
 const (
