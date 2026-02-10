@@ -1,5 +1,7 @@
 package rpmdb
 
+//go:generate go run ../cmd/generate-testcases
+
 import (
 	"encoding/hex"
 	"os"

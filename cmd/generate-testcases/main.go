@@ -40,6 +40,7 @@ type singlePkgFixture struct {
 	filesComment     string // comment above InstalledFiles
 }
 
+// listFixtures order matches the original rpmdb_testcase_test.go declaration order.
 var listFixtures = []listFixture{
 	{
 		varName:     "CentOS5Plain",
@@ -48,15 +49,6 @@ var listFixtures = []listFixture{
 		readerImage: "centos:7",
 		comments: []string{
 			"docker run --rm -it centos:5 bash",
-		},
-	},
-	{
-		varName:     "CentOS6Plain",
-		testdataDir: "centos6-plain",
-		dbFile:      "Packages",
-		readerImage: "centos:7",
-		comments: []string{
-			"docker run --rm -it centos:6 bash",
 		},
 	},
 	{
@@ -77,18 +69,19 @@ var listFixtures = []listFixture{
 		comments: []string{
 			"docker run --rm -it centos:6 bash",
 			`yum groupinstall -y "Development tools"`,
-			`yum install -y rpm-build yum-utils rpmdevtools libffi-devel openssl-devel`,
-			"rpmdev-setuptree",
-			`yum install -y zlib-devel bzip2-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel expat-devel`,
+			"yum install -y rpm-build redhat-rpm-config asciidoc hmaccalc perl-ExtUtils-Embed pesign xmlto",
+			"yum install -y audit-libs-devel binutils-devel elfutils-devel elfutils-libelf-devel java-devel",
+			"yum install -y ncurses-devel newt-devel numactl-devel pciutils-devel python-devel zlib-devel",
+			"yum install -y net-tools bc",
 		},
 	},
 	{
-		varName:     "CentOS7Plain",
-		testdataDir: "centos7-plain",
+		varName:     "CentOS6Plain",
+		testdataDir: "centos6-plain",
 		dbFile:      "Packages",
 		readerImage: "centos:7",
 		comments: []string{
-			"docker run --rm -it centos:7 bash",
+			"docker run --rm -it centos:6 bash",
 		},
 	},
 	{
@@ -102,6 +95,15 @@ var listFixtures = []listFixture{
 		},
 	},
 	{
+		varName:     "CentOS7Httpd24",
+		testdataDir: "centos7-httpd24",
+		dbFile:      "Packages",
+		readerImage: "centos:7",
+		comments: []string{
+			"docker run --rm -it centos/httpd-24-centos7 bash",
+		},
+	},
+	{
 		varName:     "CentOS7Many",
 		testdataDir: "centos7-many",
 		dbFile:      "Packages",
@@ -109,19 +111,19 @@ var listFixtures = []listFixture{
 		comments: []string{
 			"docker run --rm -it centos:7 bash",
 			`yum groupinstall -y "Development tools"`,
-			`yum install -y rpm-build yum-utils rpmdevtools libffi-devel openssl-devel`,
-			"rpmdev-setuptree",
-			`yum install -y zlib-devel bzip2-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel expat-devel`,
-			`yum install -y net-tools bc`,
+			"yum install -y rpm-build redhat-rpm-config asciidoc hmaccalc perl-ExtUtils-Embed pesign xmlto",
+			"yum install -y audit-libs-devel binutils-devel elfutils-devel elfutils-libelf-devel java-devel",
+			"yum install -y ncurses-devel newt-devel numactl-devel pciutils-devel python-devel zlib-devel",
+			"yum install -y net-tools bc",
 		},
 	},
 	{
-		varName:     "CentOS7Httpd24",
-		testdataDir: "centos7-httpd24",
+		varName:     "CentOS7Plain",
+		testdataDir: "centos7-plain",
 		dbFile:      "Packages",
 		readerImage: "centos:7",
 		comments: []string{
-			"docker run --rm -it centos/httpd-24-centos7 bash",
+			"docker run --rm -it centos:7 bash",
 		},
 	},
 	{
@@ -180,7 +182,8 @@ var listFixtures = []listFixture{
 		readerImage: "rockylinux:9",
 		comments: []string{
 			"docker run --rm -it fedora:35 bash",
-			"dnf -y install mongodb-cli",
+			"dnf -y install https://repo.mongodb.org/yum/redhat/8/mongodb-org/5.0/x86_64/RPMS/mongodb-org-shell-5.0.9-1.el8.x86_64.rpm",
+			"dnf -y install https://repo.mongodb.org/yum/redhat/8/mongodb-org/5.0/x86_64/RPMS/mongodb-cli-1.25.0.x86_64.rpm",
 		},
 	},
 	{
@@ -203,7 +206,6 @@ var singlePkgFixtures = []singlePkgFixture{
 		filesVarName:     "CentOS5PythonInstalledFiles",
 		fileNamesVarName: "CentOS5PythonInstalledFileNames",
 		fileNamesComment: "rpm -ql python --dbpath /path/to/testdata/centos5-plain | awk '{printf \"\\\"%s\\\",\\n\", $1}'",
-		filesComment:     "",
 	},
 	{
 		pkgName:          "glibc",
@@ -213,7 +215,6 @@ var singlePkgFixtures = []singlePkgFixture{
 		filesVarName:     "CentOS6GlibcInstalledFiles",
 		fileNamesVarName: "CentOS6GlibcInstalledFileNames",
 		fileNamesComment: "rpm -ql glibc --dbpath /path/to/testdata/centos6-plain | awk '{printf \"\\\"%s\\\",\\n\", $1}'",
-		filesComment:     "",
 	},
 	{
 		pkgName:          "nodejs",
@@ -222,8 +223,6 @@ var singlePkgFixtures = []singlePkgFixture{
 		readerImage:      "centos:7",
 		filesVarName:     "CentOS8NodejsInstalledFiles",
 		fileNamesVarName: "CentOS8NodejsInstalledFileNames",
-		fileNamesComment: "",
-		filesComment:     "",
 	},
 	{
 		pkgName:          "curl",
@@ -232,8 +231,6 @@ var singlePkgFixtures = []singlePkgFixture{
 		readerImage:      "rockylinux:9",
 		filesVarName:     "Mariner2CurlInstalledFiles",
 		fileNamesVarName: "Mariner2CurlInstalledFileNames",
-		fileNamesComment: "",
-		filesComment:     "",
 	},
 	{
 		pkgName:          "libuuid",
@@ -242,8 +239,6 @@ var singlePkgFixtures = []singlePkgFixture{
 		readerImage:      "centos:7",
 		filesVarName:     "LibuuidInstalledFiles",
 		fileNamesVarName: "LibuuidInstalledFileNames",
-		fileNamesComment: "",
-		filesComment:     "",
 	},
 	{
 		pkgName:          "hostname",
@@ -252,9 +247,32 @@ var singlePkgFixtures = []singlePkgFixture{
 		readerImage:      "rockylinux:9",
 		filesVarName:     "Rockylinux9HostnameFiles",
 		fileNamesVarName: "Rockylinux9HostnameFileNames",
-		fileNamesComment: "",
-		filesComment:     "",
 	},
+}
+
+// Output order for single-package vars, matching the original file.
+// The original groups FileNames first (except rockylinux9), then Files, then rockylinux9 at the end.
+type varOutput struct {
+	fixture   int  // index into singlePkgFixtures
+	fileNames bool // true = InstalledFileNames, false = InstalledFiles
+}
+
+var singlePkgOutputOrder = []varOutput{
+	// FileNames first (all except rockylinux9)
+	{0, true}, // CentOS5PythonInstalledFileNames
+	{1, true}, // CentOS6GlibcInstalledFileNames
+	{2, true}, // CentOS8NodejsInstalledFileNames
+	{3, true}, // Mariner2CurlInstalledFileNames
+	{4, true}, // LibuuidInstalledFileNames
+	// Files (all except rockylinux9)
+	{0, false}, // CentOS5PythonInstalledFiles
+	{1, false}, // CentOS6GlibcInstalledFiles
+	{2, false}, // CentOS8NodejsInstalledFiles
+	{3, false}, // Mariner2CurlInstalledFiles
+	{4, false}, // LibuuidInstalledFiles
+	// Rockylinux9: Files then FileNames (reversed, appended at end in original)
+	{5, false}, // Rockylinux9HostnameFiles
+	{5, true},  // Rockylinux9HostnameFileNames
 }
 
 func main() {
@@ -346,39 +364,46 @@ var (
 		buf.WriteString("\t}\n\n")
 	}
 
-	// Generate single-package InstalledFileNames
+	// Pre-generate all single-package data
+	type pkgData struct {
+		names []string
+		files []string
+	}
+	singlePkgData := make([]pkgData, len(singlePkgFixtures))
 	for i, f := range singlePkgFixtures {
-		log.Printf("Generating InstalledFileNames %d/%d: %s", i+1, len(singlePkgFixtures), f.fileNamesVarName)
+		log.Printf("Generating single-package data %d/%d: %s", i+1, len(singlePkgFixtures), f.pkgName)
 
 		names, err := generateInstalledFileNames(f)
 		if err != nil {
 			log.Fatalf("Failed to generate %s: %v", f.fileNamesVarName, err)
 		}
-
-		if f.fileNamesComment != "" {
-			fmt.Fprintf(&buf, "\t// %s\n", f.fileNamesComment)
-		}
-		fmt.Fprintf(&buf, "\t%s = []string{\n", f.fileNamesVarName)
-		for _, name := range names {
-			fmt.Fprintf(&buf, "\t\t%q,\n", name)
-		}
-		buf.WriteString("\t}\n\n")
-	}
-
-	// Generate single-package InstalledFiles
-	for i, f := range singlePkgFixtures {
-		log.Printf("Generating InstalledFiles %d/%d: %s", i+1, len(singlePkgFixtures), f.filesVarName)
-
 		files, err := generateInstalledFiles(f)
 		if err != nil {
 			log.Fatalf("Failed to generate %s: %v", f.filesVarName, err)
 		}
+		singlePkgData[i] = pkgData{names: names, files: files}
+	}
 
-		fmt.Fprintf(&buf, "\t%s = []FileInfo{\n", f.filesVarName)
-		for _, line := range files {
-			fmt.Fprintf(&buf, "\t\t%s\n", line)
+	// Emit single-package vars in the original file's declaration order
+	for _, vo := range singlePkgOutputOrder {
+		f := singlePkgFixtures[vo.fixture]
+		d := singlePkgData[vo.fixture]
+		if vo.fileNames {
+			if f.fileNamesComment != "" {
+				fmt.Fprintf(&buf, "\t// %s\n", f.fileNamesComment)
+			}
+			fmt.Fprintf(&buf, "\t%s = []string{\n", f.fileNamesVarName)
+			for _, name := range d.names {
+				fmt.Fprintf(&buf, "\t\t%q,\n", name)
+			}
+			buf.WriteString("\t}\n\n")
+		} else {
+			fmt.Fprintf(&buf, "\t%s = []FileInfo{\n", f.filesVarName)
+			for _, line := range d.files {
+				fmt.Fprintf(&buf, "\t\t%s\n", line)
+			}
+			buf.WriteString("\t}\n\n")
 		}
-		buf.WriteString("\t}\n\n")
 	}
 
 	// Close var block
