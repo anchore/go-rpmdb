@@ -94,6 +94,11 @@ var (
 			file:    "testdata/rockylinux-9/rpmdb.sqlite",
 			pkgList: Rockylinux9WithSQLite3(),
 		},
+		{
+			name:    "Oracle Linux 9 with SQLite3 style rpm database (no Issuer Fingerprint subpacket)",
+			file:    "testdata/oraclelinux-9/rpmdb.sqlite",
+			pkgList: OracleLinux9WithSQLite3(),
+		},
 	}
 )
 
@@ -108,8 +113,6 @@ func TestPackageList(t *testing.T) {
 
 			// They are tested in another function.
 			for _, g := range got {
-				g.PGP = ""
-				g.RSAHeader = ""
 				g.DigestAlgorithm = 0
 				g.InstallTime = 0
 				g.BaseNames = nil

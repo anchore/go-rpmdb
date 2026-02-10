@@ -262,34 +262,6 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 	return pkgInfo, nil
 }
 
-type pgpSig struct {
-	_          [3]byte
-	Date       int32
-	KeyID      [8]byte
-	PubKeyAlgo uint8
-	HashAlgo   uint8
-}
-
-type textSig struct {
-	_          [2]byte
-	PubKeyAlgo uint8
-	HashAlgo   uint8
-	_          [4]byte
-	Date       int32
-	_          [4]byte
-	KeyID      [8]byte
-}
-
-type pgp4Sig struct {
-	_          [2]byte
-	PubKeyAlgo uint8
-	HashAlgo   uint8
-	_          [17]byte
-	KeyID      [8]byte
-	_          [2]byte
-	Date       int32
-}
-
 var pubKeyLookup = map[uint8]string{
 	0x01: "RSA",
 }
@@ -298,77 +270,183 @@ var hashLookup = map[uint8]string{
 	0x08: "SHA256",
 }
 
+// parsePGP parses an OpenPGP signature packet (RFC 4880) stored in an RPM header
+// tag (RPMTAG_PGP or RPMTAG_RSAHEADER) and returns a human-readable string
+// matching rpm's %{...:pgpsig} format.
 func parsePGP(ie indexEntry) (string, error) {
-	var tag, signatureType, version uint8
+	if len(ie.Data) < 4 {
+		return "", nil
+	}
 
 	r := bytes.NewReader(ie.Data)
-	err := binary.Read(r, binary.BigEndian, &tag)
-	if err != nil {
+
+	// Parse PGP packet tag byte (RFC 4880 Section 4.2)
+	var tag uint8
+	if err := binary.Read(r, binary.BigEndian, &tag); err != nil {
 		return "", err
 	}
-	err = binary.Read(r, binary.BigEndian, &signatureType)
-	if err != nil {
-		return "", err
-	}
-	err = binary.Read(r, binary.BigEndian, &version)
-	if err != nil {
-		return "", err
+	if tag&0x80 == 0 {
+		return "", nil
 	}
 
-	switch signatureType {
-	case 0x01:
-		switch version {
-		case 0x1c:
-			sig := textSig{}
-			err = binary.Read(r, binary.BigEndian, &sig)
-			if err != nil {
-				return "", fmt.Errorf("invalid PGP signature on decode: %w", err)
-			}
-
-			pubKeyAlgo := pubKeyLookup[sig.PubKeyAlgo]
-			hashAlgo := hashLookup[sig.HashAlgo]
-			pkgDate := time.Unix(int64(sig.Date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
-			keyId := sig.KeyID
-
-			return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKeyAlgo, hashAlgo, pkgDate, keyId), nil
-		default:
-			return decodePGPSig(version, r)
+	// Skip length field to reach the signature body
+	if tag&0x40 == 0 {
+		// Old format (bit 6 = 0): length type in bits 1-0
+		switch tag & 0x03 {
+		case 0:
+			r.Seek(1, io.SeekCurrent)
+		case 1:
+			r.Seek(2, io.SeekCurrent)
+		case 2:
+			r.Seek(4, io.SeekCurrent)
 		}
-	case 0x02:
-		return decodePGPSig(version, r)
+	} else {
+		// New format (bit 6 = 1)
+		var first uint8
+		if err := binary.Read(r, binary.BigEndian, &first); err != nil {
+			return "", err
+		}
+		switch {
+		case first < 192:
+			// 1-byte length, already consumed
+		case first < 224:
+			r.Seek(1, io.SeekCurrent)
+		case first == 255:
+			r.Seek(4, io.SeekCurrent)
+		}
 	}
 
-	return "", nil
+	// Read PGP signature version
+	var version uint8
+	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
+		return "", err
+	}
+
+	switch version {
+	case 3:
+		return parsePGPv3(r)
+	case 4:
+		return parsePGPv4(r)
+	default:
+		return "", nil
+	}
 }
 
-func decodePGPSig(version uint8, r io.Reader) (string, error) {
-	var pubKeyAlgo, hashAlgo, pkgDate string
-	var keyId [8]byte
-
-	switch {
-	case version > 0x15:
-		sig := pgp4Sig{}
-		err := binary.Read(r, binary.BigEndian, &sig)
-		if err != nil {
-			return "", fmt.Errorf("invalid PGP v4 signature on decode: %w", err)
-		}
-		pubKeyAlgo = pubKeyLookup[sig.PubKeyAlgo]
-		hashAlgo = hashLookup[sig.HashAlgo]
-		pkgDate = time.Unix(int64(sig.Date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
-		keyId = sig.KeyID
-
-	default:
-		sig := pgpSig{}
-		err := binary.Read(r, binary.BigEndian, &sig)
-		if err != nil {
-			return "", fmt.Errorf("invalid PGP signature on decode: %w", err)
-		}
-		pubKeyAlgo = pubKeyLookup[sig.PubKeyAlgo]
-		hashAlgo = hashLookup[sig.HashAlgo]
-		pkgDate = time.Unix(int64(sig.Date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
-		keyId = sig.KeyID
+// parsePGPv3 parses a PGP v3 signature body (after the version byte).
+// V3 layout: hashMatLen(1) sigType(1) date(4) keyID(8) pubKeyAlgo(1) hashAlgo(1)
+func parsePGPv3(r io.Reader) (string, error) {
+	var sig struct {
+		HashMatLen uint8
+		SigType    uint8
+		Date       int32
+		KeyID      [8]byte
+		PubKeyAlgo uint8
+		HashAlgo   uint8
 	}
-	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKeyAlgo, hashAlgo, pkgDate, keyId), nil
+	if err := binary.Read(r, binary.BigEndian, &sig); err != nil {
+		return "", fmt.Errorf("invalid PGP v3 signature: %w", err)
+	}
+
+	pubKey := pubKeyLookup[sig.PubKeyAlgo]
+	hash := hashLookup[sig.HashAlgo]
+	pkgDate := time.Unix(int64(sig.Date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
+
+	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKey, hash, pkgDate, sig.KeyID), nil
+}
+
+// parsePGPv4 parses a PGP v4 signature body (after the version byte).
+// V4 layout: sigType(1) pubKeyAlgo(1) hashAlgo(1) hashedSubLen(2) hashedSubs(N)
+//
+//	unhashedSubLen(2) unhashedSubs(N) ...
+func parsePGPv4(r io.Reader) (string, error) {
+	var header struct {
+		SigType    uint8
+		PubKeyAlgo uint8
+		HashAlgo   uint8
+	}
+	if err := binary.Read(r, binary.BigEndian, &header); err != nil {
+		return "", fmt.Errorf("invalid PGP v4 signature header: %w", err)
+	}
+
+	var keyID [8]byte
+	var date int32
+
+	// Process hashed and unhashed subpacket areas
+	for i := 0; i < 2; i++ {
+		var subLen uint16
+		if err := binary.Read(r, binary.BigEndian, &subLen); err != nil {
+			return "", fmt.Errorf("invalid PGP v4 subpacket length: %w", err)
+		}
+		subData := make([]byte, subLen)
+		if _, err := io.ReadFull(r, subData); err != nil {
+			return "", fmt.Errorf("invalid PGP v4 subpacket data: %w", err)
+		}
+		parsePGPv4Subpackets(subData, &keyID, &date)
+	}
+
+	pubKey := pubKeyLookup[header.PubKeyAlgo]
+	hash := hashLookup[header.HashAlgo]
+	pkgDate := time.Unix(int64(date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
+
+	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKey, hash, pkgDate, keyID), nil
+}
+
+// PGP v4 subpacket types (RFC 4880 Section 5.2.3.1)
+const (
+	pgpSubpacketCreationTime    = 2
+	pgpSubpacketIssuerKeyID     = 16
+	pgpSubpacketIssuerFingerprint = 33
+)
+
+// parsePGPv4Subpackets extracts the creation time and key ID from a subpacket area.
+func parsePGPv4Subpackets(data []byte, keyID *[8]byte, date *int32) {
+	offset := 0
+	for offset < len(data) {
+		// Subpacket length (RFC 4880 Section 5.2.3.1)
+		var spLen int
+		first := data[offset]
+		offset++
+		switch {
+		case first < 192:
+			spLen = int(first)
+		case first < 255:
+			if offset >= len(data) {
+				return
+			}
+			spLen = (int(first)-192)<<8 + int(data[offset]) + 192
+			offset++
+		default: // 255
+			if offset+4 > len(data) {
+				return
+			}
+			spLen = int(data[offset])<<24 | int(data[offset+1])<<16 | int(data[offset+2])<<8 | int(data[offset+3])
+			offset += 4
+		}
+
+		if spLen == 0 || offset+spLen > len(data) {
+			return
+		}
+
+		spType := data[offset] & 0x7f // strip critical bit
+		spBody := data[offset+1 : offset+spLen]
+		offset += spLen
+
+		switch spType {
+		case pgpSubpacketCreationTime:
+			if len(spBody) >= 4 {
+				*date = int32(spBody[0])<<24 | int32(spBody[1])<<16 | int32(spBody[2])<<8 | int32(spBody[3])
+			}
+		case pgpSubpacketIssuerKeyID:
+			if len(spBody) >= 8 {
+				copy(keyID[:], spBody[:8])
+			}
+		case pgpSubpacketIssuerFingerprint:
+			// version(1) + fingerprint(20 for v4, 32 for v5); key ID = last 8 bytes
+			if len(spBody) >= 9 {
+				copy(keyID[:], spBody[len(spBody)-8:])
+			}
+		}
+	}
 }
 
 const (

@@ -195,6 +195,15 @@ var listFixtures = []listFixture{
 			"docker run --rm -it rockylinux:9 bash",
 		},
 	},
+	{
+		varName:     "OracleLinux9WithSQLite3",
+		testdataDir: "oraclelinux-9",
+		dbFile:      "rpmdb.sqlite",
+		readerImage: "oraclelinux:9",
+		comments: []string{
+			"docker run --rm -it oraclelinux:9 bash",
+		},
+	},
 }
 
 var singlePkgFixtures = []singlePkgFixture{
@@ -307,6 +316,8 @@ type commonPackageInfo struct {
 	Modularitylabel string
 	Summary         string
 	SigMD5          string
+	PGP             string
+	RSAHeader       string
 }
 
 func toPackageInfo(pkgs []*commonPackageInfo) []*PackageInfo {
@@ -325,6 +336,8 @@ func toPackageInfo(pkgs []*commonPackageInfo) []*PackageInfo {
 			Modularitylabel: p.Modularitylabel,
 			Summary:         p.Summary,
 			SigMD5:          p.SigMD5,
+			PGP:             p.PGP,
+			RSAHeader:       p.RSAHeader,
 		})
 	}
 
@@ -454,6 +467,7 @@ func runDocker(readerImage, testdataDir, script string) (string, error) {
 
 	cmd := exec.Command("docker", "run", "--rm",
 		"-e", "LANG=C.UTF-8",
+		"-e", "TZ=UTC",
 		"-v", fmt.Sprintf("%s:/src:ro", srcPath),
 		readerImage,
 		"bash", "-c", script,
@@ -474,12 +488,12 @@ func runDocker(readerImage, testdataDir, script string) (string, error) {
 // generateListFixture queries rpm with tab-separated output and formats as Go struct literals.
 func generateListFixture(f listFixture) ([]string, error) {
 	// Use tab-separated fields to avoid issues with embedded quotes in field values.
-	// Fields: EPOCH, NAME, VERSION, RELEASE, ARCH, SOURCERPM, SIZE, LICENSE, VENDOR, MODULARITYLABEL, SUMMARY, SIGMD5
+	// Fields: EPOCH, NAME, VERSION, RELEASE, ARCH, SOURCERPM, SIZE, LICENSE, VENDOR, MODULARITYLABEL, SUMMARY, SIGMD5, SIGPGP, RSAHEADER
 	var qf string
 	if f.hasModularitylabel {
-		qf = `%{EPOCH}\t%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SOURCERPM}\t%{SIZE}\t%{LICENSE}\t%{VENDOR}\t%{MODULARITYLABEL}\t%{SUMMARY}\t%{SIGMD5}\n`
+		qf = `%{EPOCH}\t%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SOURCERPM}\t%{SIZE}\t%{LICENSE}\t%{VENDOR}\t%{MODULARITYLABEL}\t%{SUMMARY}\t%{SIGMD5}\t%{SIGPGP:pgpsig}\t%{RSAHEADER:pgpsig}\n`
 	} else {
-		qf = `%{EPOCH}\t%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SOURCERPM}\t%{SIZE}\t%{LICENSE}\t%{VENDOR}\t\t%{SUMMARY}\t%{SIGMD5}\n`
+		qf = `%{EPOCH}\t%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SOURCERPM}\t%{SIZE}\t%{LICENSE}\t%{VENDOR}\t\t%{SUMMARY}\t%{SIGMD5}\t%{SIGPGP:pgpsig}\t%{RSAHEADER:pgpsig}\n`
 	}
 
 	script := fmt.Sprintf(
@@ -499,9 +513,9 @@ func generateListFixture(f listFixture) ([]string, error) {
 			continue
 		}
 
-		fields := strings.SplitN(line, "\t", 12)
-		if len(fields) != 12 {
-			return nil, fmt.Errorf("expected 12 tab-separated fields, got %d: %q", len(fields), line)
+		fields := strings.SplitN(line, "\t", 14)
+		if len(fields) != 14 {
+			return nil, fmt.Errorf("expected 14 tab-separated fields, got %d: %q", len(fields), line)
 		}
 
 		epoch := fields[0]
@@ -516,6 +530,8 @@ func generateListFixture(f listFixture) ([]string, error) {
 		modularitylabel := fields[9]
 		summary := fields[10]
 		sigMD5 := fields[11]
+		pgp := fields[12]
+		rsaHeader := fields[13]
 
 		// Format epoch
 		var epochStr string
@@ -542,10 +558,12 @@ func generateListFixture(f listFixture) ([]string, error) {
 		summary = noneToEmpty(summary)
 		sigMD5 = noneToEmpty(sigMD5)
 		modularitylabel = noneToEmpty(modularitylabel)
+		pgp = noneToEmpty(pgp)
+		rsaHeader = noneToEmpty(rsaHeader)
 
 		goLine := fmt.Sprintf(
-			`{%s, %q, %q, %q, %q, %q, %s, %q, %q, %q, %q, %q},`,
-			epochStr, name, version, release, arch, sourceRpm, size, license, vendor, modularitylabel, summary, sigMD5,
+			`{%s, %q, %q, %q, %q, %q, %s, %q, %q, %q, %q, %q, %q, %q},`,
+			epochStr, name, version, release, arch, sourceRpm, size, license, vendor, modularitylabel, summary, sigMD5, pgp, rsaHeader,
 		)
 		lines = append(lines, goLine)
 	}
