@@ -1,6 +1,6 @@
 package rpmdb
 
-//go:generate go run ../cmd/generate-testcases
+//go:generate go run ./internal/generate
 
 import (
 	"encoding/hex"
