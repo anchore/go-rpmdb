@@ -299,6 +299,8 @@ func parsePGP(ie indexEntry) (string, error) {
 			r.Seek(2, io.SeekCurrent)
 		case 2:
 			r.Seek(4, io.SeekCurrent)
+		case 3:
+			// indeterminate length: body extends to end of input; no skip needed.
 		}
 	} else {
 		// New format (bit 6 = 1)
@@ -369,7 +371,7 @@ func parsePGPv4(r io.Reader) (string, error) {
 	}
 
 	var keyID [8]byte
-	var date int32
+	var date int64
 
 	// Process hashed and unhashed subpacket areas
 	for i := 0; i < 2; i++ {
@@ -386,7 +388,7 @@ func parsePGPv4(r io.Reader) (string, error) {
 
 	pubKey := pubKeyLookup[header.PubKeyAlgo]
 	hash := hashLookup[header.HashAlgo]
-	pkgDate := time.Unix(int64(date), 0).UTC().Format("Mon Jan _2 15:04:05 2006")
+	pkgDate := time.Unix(date, 0).UTC().Format("Mon Jan _2 15:04:05 2006")
 
 	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKey, hash, pkgDate, keyID), nil
 }
@@ -399,7 +401,10 @@ const (
 )
 
 // parsePGPv4Subpackets extracts the creation time and key ID from a subpacket area.
-func parsePGPv4Subpackets(data []byte, keyID *[8]byte, date *int32) {
+// If both an Issuer Key ID (type 16) and Issuer Fingerprint (type 33) subpacket are
+// present, the explicit Key ID takes priority.
+func parsePGPv4Subpackets(data []byte, keyID *[8]byte, date *int64) {
+	var hasExplicitKeyID bool
 	offset := 0
 	for offset < len(data) {
 		// Subpacket length (RFC 4880 Section 5.2.3.1)
@@ -434,15 +439,17 @@ func parsePGPv4Subpackets(data []byte, keyID *[8]byte, date *int32) {
 		switch spType {
 		case pgpSubpacketCreationTime:
 			if len(spBody) >= 4 {
-				*date = int32(spBody[0])<<24 | int32(spBody[1])<<16 | int32(spBody[2])<<8 | int32(spBody[3])
+				*date = int64(spBody[0])<<24 | int64(spBody[1])<<16 | int64(spBody[2])<<8 | int64(spBody[3])
 			}
 		case pgpSubpacketIssuerKeyID:
 			if len(spBody) >= 8 {
 				copy(keyID[:], spBody[:8])
+				hasExplicitKeyID = true
 			}
 		case pgpSubpacketIssuerFingerprint:
-			// version(1) + fingerprint(20 for v4, 32 for v5); key ID = last 8 bytes
-			if len(spBody) >= 9 {
+			// version(1) + fingerprint(20 for v4, 32 for v5); key ID = last 8 bytes.
+			// Only use as fallback when no explicit Issuer Key ID subpacket is present.
+			if !hasExplicitKeyID && len(spBody) >= 9 {
 				copy(keyID[:], spBody[len(spBody)-8:])
 			}
 		}
