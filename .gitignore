@@ -1,5 +1,41 @@
-cmd/rpmdb/*
-!cmd/rpmdb/main.go
+# local development
+go.work
+go.work.sum
+mise.toml
+/specs/
+
+# IDEs
+.idea/
+.vscode/
+.history/
+
+# tools and aux data
+.tool
+.tmp
+.task
+
+# release info
+/CHANGELOG.md
+/VERSION
+
+# archives and fixtures
+/test/results
+/dist
+/snapshot
+.server/
+*.fingerprint
+*.tar
+*.jar
+*.war
+*.ear
+*.jpi
+*.hpi
+*.zip
+*.log
+.images
+.tmp/
+coverage.txt
+bin/
 
 # Binaries for programs and plugins
 *.exe
@@ -14,5 +50,12 @@ cmd/rpmdb/*
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-.idea
+# macOS Finder metadata
+.DS_STORE
+
+*.profile
+
+# go-rpmdb specific
+cmd/rpmdb/*
+!cmd/rpmdb/main.go
 vendor

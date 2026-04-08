@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 
-	rpmdb "github.com/anchore/go-rpmdb/pkg"
+	_ "github.com/glebarez/go-sqlite"
 	multierror "github.com/hashicorp/go-multierror"
 
-	_ "github.com/glebarez/go-sqlite"
+	rpmdb "github.com/anchore/go-rpmdb/pkg"
 )
 
 func main() {
