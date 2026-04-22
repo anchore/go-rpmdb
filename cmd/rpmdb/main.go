@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
 	_ "github.com/glebarez/go-sqlite"
-	multierror "github.com/hashicorp/go-multierror"
 
 	rpmdb "github.com/anchore/go-rpmdb/pkg"
 )
@@ -47,24 +47,25 @@ func run() error {
 }
 
 func detectDB() (*rpmdb.RpmDB, error) {
-	var result error
+	var errs []error
+
 	db, err := rpmdb.Open("./rpmdb.sqlite")
 	if err == nil {
 		return db, nil
 	}
-	result = multierror.Append(result, err)
+	errs = append(errs, err)
 
 	db, err = rpmdb.Open("./Packages.db")
 	if err == nil {
 		return db, nil
 	}
-	result = multierror.Append(result, err)
+	errs = append(errs, err)
 
 	db, err = rpmdb.Open("./Packages")
 	if err == nil {
 		return db, nil
 	}
-	result = multierror.Append(result, err)
+	errs = append(errs, err)
 
-	return nil, result
+	return nil, errors.Join(errs...)
 }
