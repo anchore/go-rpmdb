@@ -1,8 +1,9 @@
 package rpmdb
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFileDigest(t *testing.T) {
