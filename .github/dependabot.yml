@@ -1,9 +1,10 @@
 version: 2
 
 updates:
-
   - package-ecosystem: gomod
-    directory: "/"
+    directories:
+      - "/"
+      - "/.make"
     schedule:
       interval: "weekly"
     cooldown:
