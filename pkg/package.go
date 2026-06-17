@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strings"
 	"time"
-
-	"golang.org/x/xerrors"
 )
 
 type PackageInfo struct {
@@ -63,64 +62,64 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 		switch ie.Info.Tag {
 		case RPMTAG_DIRINDEXES:
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag dir indexes")
+				return nil, errors.New("invalid tag dir indexes")
 			}
 
 			dirIndexes, err := parseInt32Array(ie.Data, ie.Length)
 			if err != nil {
-				return nil, xerrors.Errorf("unable to read dir indexes: %w", err)
+				return nil, fmt.Errorf("unable to read dir indexes: %w", err)
 			}
 			pkgInfo.DirIndexes = dirIndexes
 		case RPMTAG_DIRNAMES:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag dir names")
+				return nil, errors.New("invalid tag dir names")
 			}
 			pkgInfo.DirNames = parseStringArray(ie.Data)
 		case RPMTAG_BASENAMES:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag base names")
+				return nil, errors.New("invalid tag base names")
 			}
 			pkgInfo.BaseNames = parseStringArray(ie.Data)
 		case RPMTAG_MODULARITYLABEL:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag modularitylabel")
+				return nil, errors.New("invalid tag modularitylabel")
 			}
 			pkgInfo.Modularitylabel = string(bytes.TrimRight(ie.Data, "\x00"))
 		case RPMTAG_NAME:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag name")
+				return nil, errors.New("invalid tag name")
 			}
 			pkgInfo.Name = string(bytes.TrimRight(ie.Data, "\x00"))
 		case RPMTAG_EPOCH:
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag epoch")
+				return nil, errors.New("invalid tag epoch")
 			}
 
 			if ie.Data != nil {
 				value, err := parseInt32(ie.Data)
 				if err != nil {
-					return nil, xerrors.Errorf("failed to parse epoch: %w", err)
+					return nil, fmt.Errorf("failed to parse epoch: %w", err)
 				}
 				pkgInfo.Epoch = &value
 			}
 		case RPMTAG_VERSION:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag version")
+				return nil, errors.New("invalid tag version")
 			}
 			pkgInfo.Version = string(bytes.TrimRight(ie.Data, "\x00"))
 		case RPMTAG_RELEASE:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag release")
+				return nil, errors.New("invalid tag release")
 			}
 			pkgInfo.Release = string(bytes.TrimRight(ie.Data, "\x00"))
 		case RPMTAG_ARCH:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag arch")
+				return nil, errors.New("invalid tag arch")
 			}
 			pkgInfo.Arch = string(bytes.TrimRight(ie.Data, "\x00"))
 		case RPMTAG_SOURCERPM:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag sourcerpm")
+				return nil, errors.New("invalid tag sourcerpm")
 			}
 			pkgInfo.SourceRpm = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.SourceRpm == "(none)" {
@@ -128,17 +127,17 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			}
 		case RPMTAG_PROVIDENAME:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag providename")
+				return nil, errors.New("invalid tag providename")
 			}
 			pkgInfo.Provides = parseStringArray(ie.Data)
 		case RPMTAG_REQUIRENAME:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag requirename")
+				return nil, errors.New("invalid tag requirename")
 			}
 			pkgInfo.Requires = parseStringArray(ie.Data)
 		case RPMTAG_LICENSE:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag license")
+				return nil, errors.New("invalid tag license")
 			}
 			pkgInfo.License = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.License == "(none)" {
@@ -146,7 +145,7 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			}
 		case RPMTAG_VENDOR:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag vendor")
+				return nil, errors.New("invalid tag vendor")
 			}
 			pkgInfo.Vendor = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.Vendor == "(none)" {
@@ -154,86 +153,86 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			}
 		case RPMTAG_SIZE:
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag size")
+				return nil, errors.New("invalid tag size")
 			}
 
 			size, err := parseInt32(ie.Data)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse size: %w", err)
+				return nil, fmt.Errorf("failed to parse size: %w", err)
 			}
 			pkgInfo.Size = size
 		case RPMTAG_FILEDIGESTALGO:
 			// note: all digests within a package entry only supports a single digest algorithm (there may be future support for
 			// algorithm noted for each file entry, but currently unimplemented: https://github.com/rpm-software-management/rpm/blob/0b75075a8d006c8f792d33a57eae7da6b66a4591/lib/rpmtag.h#L256)
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag digest algo")
+				return nil, errors.New("invalid tag digest algo")
 			}
 
 			digestAlgorithm, err := parseInt32(ie.Data)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse digest algo: %w", err)
+				return nil, fmt.Errorf("failed to parse digest algo: %w", err)
 			}
 
 			pkgInfo.DigestAlgorithm = DigestAlgorithm(digestAlgorithm)
 		case RPMTAG_FILESIZES:
 			// note: there is no distinction between int32, uint32, and []uint32
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag file-sizes")
+				return nil, errors.New("invalid tag file-sizes")
 			}
 			fileSizes, err := parseInt32Array(ie.Data, ie.Length)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse file-sizes: %w", err)
+				return nil, fmt.Errorf("failed to parse file-sizes: %w", err)
 			}
 			pkgInfo.FileSizes = fileSizes
 		case RPMTAG_FILEDIGESTS:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag file-digests")
+				return nil, errors.New("invalid tag file-digests")
 			}
 			pkgInfo.FileDigests = parseStringArray(ie.Data)
 		case RPMTAG_FILEMODES:
 			// note: there is no distinction between int16, uint16, and []uint16
 			if ie.Info.Type != RPM_INT16_TYPE {
-				return nil, xerrors.New("invalid tag file-modes")
+				return nil, errors.New("invalid tag file-modes")
 			}
 			fileModes, err := uint16Array(ie.Data, ie.Length)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse file-modes: %w", err)
+				return nil, fmt.Errorf("failed to parse file-modes: %w", err)
 			}
 			pkgInfo.FileModes = fileModes
 		case RPMTAG_FILEFLAGS:
 			// note: there is no distinction between int32, uint32, and []uint32
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag file-flags")
+				return nil, errors.New("invalid tag file-flags")
 			}
 			fileFlags, err := parseInt32Array(ie.Data, ie.Length)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse file-flags: %w", err)
+				return nil, fmt.Errorf("failed to parse file-flags: %w", err)
 			}
 			pkgInfo.FileFlags = fileFlags
 		case RPMTAG_FILEUSERNAME:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag usernames")
+				return nil, errors.New("invalid tag usernames")
 			}
 			pkgInfo.UserNames = parseStringArray(ie.Data)
 		case RPMTAG_FILEGROUPNAME:
 			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
-				return nil, xerrors.New("invalid tag groupnames")
+				return nil, errors.New("invalid tag groupnames")
 			}
 			pkgInfo.GroupNames = parseStringArray(ie.Data)
 		case RPMTAG_SUMMARY:
 			// some libraries have a string value instead of international string, so accounting for both
 			if ie.Info.Type != RPM_I18NSTRING_TYPE && ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag summary")
+				return nil, errors.New("invalid tag summary")
 			}
 			// since this is an international string, getting the first null terminated string
 			pkgInfo.Summary = string(bytes.Split(ie.Data, []byte{0})[0])
 		case RPMTAG_INSTALLTIME:
 			if ie.Info.Type != RPM_INT32_TYPE {
-				return nil, xerrors.New("invalid tag installtime")
+				return nil, errors.New("invalid tag installtime")
 			}
 			installTime, err := parseInt32(ie.Data)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse installtime: %w", err)
+				return nil, fmt.Errorf("failed to parse installtime: %w", err)
 			}
 			pkgInfo.InstallTime = installTime
 		case RPMTAG_SIGMD5:
@@ -242,20 +241,20 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			pkgInfo.SigMD5 = hex.EncodeToString(digest)
 		case RPMTAG_RSAHEADER:
 			if ie.Info.Type != RPM_BIN_TYPE {
-				return nil, xerrors.New("invalid rsa signature")
+				return nil, errors.New("invalid rsa signature")
 			}
 			val, err := parsePGP(ie)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse rsa signature: %w", err)
+				return nil, fmt.Errorf("failed to parse rsa signature: %w", err)
 			}
 			pkgInfo.RSAHeader = val
 		case RPMTAG_PGP:
 			if ie.Info.Type != RPM_BIN_TYPE {
-				return nil, xerrors.New("invalid pgp signature")
+				return nil, errors.New("invalid pgp signature")
 			}
 			val, err := parsePGP(ie)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to parse pgp signature: %w", err)
+				return nil, fmt.Errorf("failed to parse pgp signature: %w", err)
 			}
 			pkgInfo.PGP = val
 		}
@@ -383,7 +382,7 @@ func parseInt32Array(data []byte, arraySize int) ([]int32, error) {
 	values := make([]int32, length)
 	reader := bytes.NewReader(data)
 	if err := binary.Read(reader, binary.BigEndian, &values); err != nil {
-		return nil, xerrors.Errorf("failed to read binary: %w", err)
+		return nil, fmt.Errorf("failed to read binary: %w", err)
 	}
 	return values, nil
 }
@@ -392,7 +391,7 @@ func parseInt32(data []byte) (int, error) {
 	var value int32
 	reader := bytes.NewReader(data)
 	if err := binary.Read(reader, binary.BigEndian, &value); err != nil {
-		return 0, xerrors.Errorf("failed to read binary: %w", err)
+		return 0, fmt.Errorf("failed to read binary: %w", err)
 	}
 	return int(value), nil
 }
@@ -402,7 +401,7 @@ func uint16Array(data []byte, arraySize int) ([]uint16, error) {
 	values := make([]uint16, length)
 	reader := bytes.NewReader(data)
 	if err := binary.Read(reader, binary.BigEndian, &values); err != nil {
-		return nil, xerrors.Errorf("failed to read binary: %w", err)
+		return nil, fmt.Errorf("failed to read binary: %w", err)
 	}
 	return values, nil
 }
@@ -418,14 +417,14 @@ func (p *PackageInfo) InstalledFileNames() ([]string, error) {
 
 	// ref. https://github.com/rpm-software-management/rpm/blob/rpm-4.14.3-release/lib/tagexts.c#L68-L70
 	if len(p.DirIndexes) != len(p.BaseNames) || len(p.DirNames) > len(p.BaseNames) {
-		return nil, xerrors.Errorf("invalid rpm %s", p.Name)
+		return nil, fmt.Errorf("invalid rpm %s", p.Name)
 	}
 
 	var filePaths []string
 	for i, baseName := range p.BaseNames {
 		idx := p.DirIndexes[i]
 		if len(p.DirNames) <= int(idx) {
-			return nil, xerrors.Errorf("invalid rpm %s", p.Name)
+			return nil, fmt.Errorf("invalid rpm %s", p.Name)
 		}
 		dir := p.DirNames[idx]
 		filePaths = append(filePaths, path.Join(dir, baseName)) // should be slash-separated
