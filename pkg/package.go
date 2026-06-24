@@ -25,6 +25,8 @@ type PackageInfo struct {
 	Vendor          string
 	Modularitylabel string
 	Summary         string
+	Packager        string
+	URL             string
 	PGP             string
 	SigMD5          string
 	RSAHeader       string
@@ -151,6 +153,22 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			pkgInfo.Vendor = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.Vendor == "(none)" {
 				pkgInfo.Vendor = ""
+			}
+		case RPMTAG_PACKAGER:
+			if ie.Info.Type != RPM_STRING_TYPE {
+				return nil, xerrors.New("invalid tag packager")
+			}
+			pkgInfo.Packager = string(bytes.TrimRight(ie.Data, "\x00"))
+			if pkgInfo.Packager == "(none)" {
+				pkgInfo.Packager = ""
+			}
+		case RPMTAG_URL:
+			if ie.Info.Type != RPM_STRING_TYPE {
+				return nil, xerrors.New("invalid tag url")
+			}
+			pkgInfo.URL = string(bytes.TrimRight(ie.Data, "\x00"))
+			if pkgInfo.URL == "(none)" {
+				pkgInfo.URL = ""
 			}
 		case RPMTAG_SIZE:
 			if ie.Info.Type != RPM_INT32_TYPE {

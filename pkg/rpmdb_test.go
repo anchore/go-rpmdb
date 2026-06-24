@@ -120,6 +120,8 @@ func TestPackageList(t *testing.T) {
 				g.GroupNames = nil
 				g.Provides = nil
 				g.Requires = nil
+				g.Packager = ""
+				g.URL = ""
 			}
 
 			for i, p := range tt.pkgList {
@@ -127,6 +129,59 @@ func TestPackageList(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stringEntry(tag int32, s string) indexEntry {
+	return indexEntry{
+		Info: entryInfo{Tag: tag, Type: RPM_STRING_TYPE},
+		Data: append([]byte(s), 0), // RPM strings are null-terminated
+	}
+}
+
+func TestGetNEVRA_PackagerAndURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		entries      []indexEntry
+		wantPackager string
+		wantURL      string
+	}{
+		{
+			name: "packager and url are parsed",
+			entries: []indexEntry{
+				stringEntry(RPMTAG_NAME, "bash"),
+				stringEntry(RPMTAG_PACKAGER, "Fedora Project"),
+				stringEntry(RPMTAG_URL, "https://www.gnu.org/software/bash"),
+			},
+			wantPackager: "Fedora Project",
+			wantURL:      "https://www.gnu.org/software/bash",
+		},
+		{
+			name: "(none) is normalized to empty",
+			entries: []indexEntry{
+				stringEntry(RPMTAG_PACKAGER, "(none)"),
+				stringEntry(RPMTAG_URL, "(none)"),
+			},
+		},
+		{
+			name:    "absent tags leave fields empty",
+			entries: []indexEntry{stringEntry(RPMTAG_NAME, "x")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, err := getNEVRA(tt.entries)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPackager, info.Packager)
+			assert.Equal(t, tt.wantURL, info.URL)
+		})
+	}
+}
+
+func TestGetNEVRA_PackagerWrongTypeErrors(t *testing.T) {
+	_, err := getNEVRA([]indexEntry{
+		{Info: entryInfo{Tag: RPMTAG_PACKAGER, Type: RPM_INT32_TYPE}, Data: []byte{0, 0, 0, 1}},
+	})
+	require.Error(t, err)
 }
 
 func BenchmarkRpmDB_Package(b *testing.B) {
@@ -239,6 +294,7 @@ func TestRpmDB_Package(t *testing.T) {
 				License:     "PSF - see LICENSE",
 				Vendor:      "CentOS",
 				Summary:     "An interpreted, interactive, object-oriented programming language.",
+				URL:         "http://www.python.org/",
 				SigMD5:      "ebfb56be33b146ef39180a090e581258",
 				PGP:         "",
 				InstallTime: 1459411575,
@@ -284,6 +340,8 @@ func TestRpmDB_Package(t *testing.T) {
 				License:         "LGPLv2+ and LGPLv2+ with exceptions and GPLv2+",
 				Vendor:          "CentOS",
 				Summary:         "The GNU libc libraries",
+				Packager:        "CentOS BuildSystem <http://bugs.centos.org>",
+				URL:             "http://sources.redhat.com/glibc/",
 				SigMD5:          "89e843d7979a50a26e2ea1924ef3e213",
 				DigestAlgorithm: PGPHASHALGO_SHA256,
 				PGP:             "RSA/SHA1, Wed Jun 20 11:36:27 2018, Key ID 0946fca2c105b9de",
@@ -687,6 +745,8 @@ func TestRpmDB_Package(t *testing.T) {
 				Vendor:          "CentOS",
 				Modularitylabel: "nodejs:10:8020020200707141642:6a468ee4",
 				Summary:         "JavaScript runtime",
+				Packager:        "CentOS Buildsys <bugs@centos.org>",
+				URL:             "http://nodejs.org/",
 				SigMD5:          "bac7919c2369f944f9da510bbd01370b",
 				PGP:             "RSA/SHA256, Tue Jul  7 16:08:24 2020, Key ID 05b555b38483c65d",
 				RSAHeader:       "RSA/SHA256, Tue Jul  7 16:08:24 2020, Key ID 05b555b38483c65d",
@@ -784,6 +844,7 @@ func TestRpmDB_Package(t *testing.T) {
 				License:         "MIT",
 				Vendor:          "Microsoft Corporation",
 				Summary:         "An URL retrieval utility and library",
+				URL:             "https://curl.haxx.se",
 				SigMD5:          "b5f5369ae91df3672fa3338669ec5ca2",
 				DigestAlgorithm: PGPHASHALGO_SHA256,
 				PGP:             "RSA/SHA256, Thu Jan 27 09:02:11 2022, Key ID 0cd9fed33135ce90",
@@ -834,6 +895,8 @@ func TestRpmDB_Package(t *testing.T) {
 				License:         "GPLv2+",
 				Vendor:          "Rocky Enterprise Software Foundation",
 				Summary:         "Utility to set/show the host name or domain name",
+				Packager:        "Rocky Linux Build System (Peridot) <releng@rockylinux.org>",
+				URL:             "http://packages.qa.debian.org/h/hostname.html",
 				SigMD5:          "8d8cdc55f002f536f30631f92b73d81f",
 				DigestAlgorithm: PGPHASHALGO_SHA256,
 				PGP:             "", // this is legacy at this point
@@ -876,6 +939,8 @@ func TestRpmDB_Package(t *testing.T) {
 				License:         "BSD",
 				Vendor:          "Red Hat, Inc.",
 				Summary:         "Universally unique ID library",
+				Packager:        "Red Hat, Inc. <http://bugzilla.redhat.com/bugzilla>",
+				URL:             "http://en.wikipedia.org/wiki/Util-linux",
 				SigMD5:          "c1e561f13d39aee443a1f00258fba000",
 				DigestAlgorithm: PGPHASHALGO_SHA256,
 				PGP:             "RSA/SHA256, Mon Apr  3 18:10:39 2023, Key ID 199e2f91fd431d51",
