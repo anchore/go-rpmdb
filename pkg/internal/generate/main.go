@@ -18,6 +18,9 @@ import (
 	"strings"
 )
 
+// rpmNone is the literal rpm emits for unset query-format values.
+const rpmNone = "(none)"
+
 // listFixture defines a fixture that generates a []*PackageInfo list via rpm -qa.
 type listFixture struct {
 	varName            string   // Go variable name
@@ -37,7 +40,6 @@ type singlePkgFixture struct {
 	filesVarName     string // e.g. CentOS5PythonInstalledFiles
 	fileNamesVarName string // e.g. CentOS5PythonInstalledFileNames
 	fileNamesComment string // comment above InstalledFileNames
-	filesComment     string // comment above InstalledFiles
 }
 
 // listFixtures order matches the original rpmdb_testcase_test.go declaration order.
@@ -379,12 +381,14 @@ func main() {
 	if err != nil {
 		// Write unformatted for debugging
 		badPath := filepath.Join(projectRoot, "pkg", "rpmdb_testcase_test.go.bad")
-		os.WriteFile(badPath, buf.Bytes(), 0644)
+		if writeErr := os.WriteFile(badPath, buf.Bytes(), 0600); writeErr != nil {
+			log.Printf("also failed to write debug output to %s: %v", badPath, writeErr)
+		}
 		log.Fatalf("gofmt failed (unformatted output written to %s): %v", badPath, err)
 	}
 
 	outPath := filepath.Join(projectRoot, "pkg", "rpmdb_testcase_test.go")
-	err = os.WriteFile(outPath, formatted, 0644)
+	err = os.WriteFile(outPath, formatted, 0600)
 	if err != nil {
 		log.Fatalf("Failed to write output: %v", err)
 	}
@@ -417,7 +421,9 @@ var projectRoot string
 func runDocker(readerImage, testdataDir, script string) (string, error) {
 	srcPath := filepath.Join(projectRoot, "pkg", "testdata", testdataDir)
 
-	cmd := exec.Command("docker", "run", "--rm",
+	// readerImage/testdataDir/script all originate from the static fixture tables
+	// at the top of this file; there is no external input to taint.
+	cmd := exec.Command("docker", "run", "--rm", //nolint:gosec // G204: args come from in-file fixture tables
 		"-e", "LANG=C.UTF-8",
 		"-e", "TZ=UTC",
 		"-v", fmt.Sprintf("%s:/src:ro", srcPath),
@@ -487,18 +493,18 @@ func generateListFixture(f listFixture) ([]string, error) {
 
 		// Format epoch
 		var epochStr string
-		if epoch == "(none)" {
+		if epoch == rpmNone {
 			epochStr = "intRef()"
 		} else {
 			epochStr = fmt.Sprintf("intRef(%s)", epoch)
 		}
 
 		// Handle (none) values: numeric fields become 0, string fields become ""
-		if size == "(none)" {
+		if size == rpmNone {
 			size = "0"
 		}
 		noneToEmpty := func(s string) string {
-			if s == "(none)" {
+			if s == rpmNone {
 				return ""
 			}
 			return s

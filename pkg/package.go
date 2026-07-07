@@ -292,17 +292,27 @@ func parsePGP(ie indexEntry) (string, error) {
 	}
 
 	// Skip length field to reach the signature body
+	skip := func(n int64) error {
+		_, err := r.Seek(n, io.SeekCurrent)
+		return err
+	}
 	if tag&0x40 == 0 {
 		// Old format (bit 6 = 0): length type in bits 1-0
+		var n int64
 		switch tag & 0x03 {
 		case 0:
-			r.Seek(1, io.SeekCurrent)
+			n = 1
 		case 1:
-			r.Seek(2, io.SeekCurrent)
+			n = 2
 		case 2:
-			r.Seek(4, io.SeekCurrent)
+			n = 4
 		case 3:
 			// indeterminate length: body extends to end of input; no skip needed.
+		}
+		if n > 0 {
+			if err := skip(n); err != nil {
+				return "", err
+			}
 		}
 	} else {
 		// New format (bit 6 = 1)
@@ -310,13 +320,19 @@ func parsePGP(ie indexEntry) (string, error) {
 		if err := binary.Read(r, binary.BigEndian, &first); err != nil {
 			return "", err
 		}
+		var n int64
 		switch {
 		case first < 192:
 			// 1-byte length, already consumed
 		case first < 224:
-			r.Seek(1, io.SeekCurrent)
+			n = 1
 		case first == 255:
-			r.Seek(4, io.SeekCurrent)
+			n = 4
+		}
+		if n > 0 {
+			if err := skip(n); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -397,8 +413,8 @@ func parsePGPv4(r io.Reader) (string, error) {
 
 // PGP v4 subpacket types (RFC 4880 Section 5.2.3.1)
 const (
-	pgpSubpacketCreationTime    = 2
-	pgpSubpacketIssuerKeyID     = 16
+	pgpSubpacketCreationTime      = 2
+	pgpSubpacketIssuerKeyID       = 16
 	pgpSubpacketIssuerFingerprint = 33
 )
 
