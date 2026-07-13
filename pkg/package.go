@@ -155,7 +155,7 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			}
 		case RPMTAG_PACKAGER:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag packager")
+				return nil, errors.New("invalid tag packager")
 			}
 			pkgInfo.Packager = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.Packager == "(none)" {
@@ -163,7 +163,7 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 			}
 		case RPMTAG_URL:
 			if ie.Info.Type != RPM_STRING_TYPE {
-				return nil, xerrors.New("invalid tag url")
+				return nil, errors.New("invalid tag url")
 			}
 			pkgInfo.URL = string(bytes.TrimRight(ie.Data, "\x00"))
 			if pkgInfo.URL == "(none)" {
