@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: tag the latest commit on master with the given version (prefixed with v)
+        description: tag the latest commit on main with the given version (prefixed with v)
         required: true
       skip-checks:
         description: skip the check-gate (release even if checks haven't passed on main)
@@ -34,8 +34,8 @@ jobs:
       checks: read # required for getting the status of specific check names
     uses: anchore/workflows/.github/workflows/check-gate.yaml@4f25313f96311410cad4173f74617654a3e46d48 # v0.3.0
     with:
-      # these are checks that should be run on pull-request and merges to master.
-      # we do NOT want to kick off a release if these have not been verified on master.
+      # these are checks that should be run on pull-request and merges to main.
+      # we do NOT want to kick off a release if these have not been verified on main.
       # Please see the validations.yaml workflow for the names that should be used here.
       checks: '["Static analysis", "Unit tests"]'
 
