@@ -166,6 +166,12 @@ func hdrblobImport(blob hdrblob, data []byte) ([]indexEntry, error) {
 			ril = blob.il
 		}
 
+		// The region trailer decides ril, and a crafted header can leave it at 0
+		// or past the end of peList, so bound it before slicing.
+		if ril < 1 || ril > int32(len(blob.peList)) {
+			return nil, fmt.Errorf("invalid region index length: %d", ril)
+		}
+
 		// ref. https://github.com/rpm-software-management/rpm/blob/rpm-4.14.3-release/lib/header.c#L917
 		indexEntries, rdlen, err = regionSwab(data, blob.peList[1:ril], 0, blob.dataStart, blob.dataEnd)
 		if err != nil {
