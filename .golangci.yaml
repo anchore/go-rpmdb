@@ -52,6 +52,11 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
+    rules:
+      # the test fixture generator is mostly literal tables of images/filenames
+      - path: pkg/internal/generate/
+        linters:
+          - goconst
     paths:
       - third_party$
       - builtin$
