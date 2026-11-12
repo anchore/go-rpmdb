@@ -15,6 +15,7 @@ const (
 	RPMTAG_DSAHEADER      = 267  /* x */
 	RPMTAG_RSAHEADER      = 268  /* x */
 	RPMTAG_SHA1HEADER     = 269  /* s */
+	RPMTAG_OPENPGP        = 278  /* s[] */
 	RPMTAG_NAME           = 1000 /* s */
 	RPMTAG_VERSION        = 1001 /* s */
 	RPMTAG_RELEASE        = 1002 /* s */

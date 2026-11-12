@@ -2,6 +2,7 @@ package rpmdb
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -29,6 +30,7 @@ type PackageInfo struct {
 	PGP             string
 	SigMD5          string
 	RSAHeader       string
+	OpenPGP         []string
 	DigestAlgorithm DigestAlgorithm
 	InstallTime     int
 	BaseNames       []string
@@ -275,23 +277,69 @@ func getNEVRA(indexEntries []indexEntry) (*PackageInfo, error) {
 				return nil, fmt.Errorf("failed to parse pgp signature: %w", err)
 			}
 			pkgInfo.PGP = val
+		case RPMTAG_OPENPGP:
+			if ie.Info.Type != RPM_STRING_ARRAY_TYPE {
+				return nil, errors.New("invalid openpgp signature")
+			}
+			for _, s := range parseStringArray(ie.Data) {
+				data, err := base64.StdEncoding.DecodeString(s)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode openpgp signature: %w", err)
+				}
+				val, err := parsePGP(indexEntry{Data: data})
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse openpgp signature: %w", err)
+				}
+				pkgInfo.OpenPGP = append(pkgInfo.OpenPGP, val)
+			}
 		}
 	}
 
 	return pkgInfo, nil
 }
 
+// ref. https://github.com/rpm-software-management/rpm/blob/master/rpmio/rpmpgpval.hh
 var pubKeyLookup = map[uint8]string{
-	0x01: "RSA",
+	1:  "RSA",
+	2:  "RSA(Encrypt-Only)",
+	3:  "RSA(Sign-Only)",
+	16: "Elgamal(Encrypt-Only)",
+	17: "DSA",
+	18: "Elliptic Curve",
+	19: "ECDSA",
+	20: "Elgamal",
+	21: "Diffie-Hellman (X9.42)",
+	22: "EdDSA",
+	25: "X25519",
+	26: "X448",
+	27: "Ed25519",
+	28: "Ed448",
+	30: "ML-DSA-65+Ed25519",
+	31: "ML-DSA-87+Ed448",
+	32: "SLH-DSA-SHAKE-128s",
+	33: "SLH-DSA-SHAKE-128f",
+	34: "SLH-DSA-SHAKE-256s",
+	35: "ML-KEM-768+X25519",
+	36: "ML-KEM-1024+X448",
 }
 var hashLookup = map[uint8]string{
-	0x02: "SHA1",
-	0x08: "SHA256",
+	1:  "MD5",
+	2:  "SHA1",
+	3:  "RIPEMD160",
+	5:  "MD2",
+	6:  "TIGER192",
+	7:  "HAVAL-5-160",
+	8:  "SHA256",
+	9:  "SHA384",
+	10: "SHA512",
+	11: "SHA224",
+	12: "SHA3-256",
+	14: "SHA3-512",
 }
 
-// parsePGP parses an OpenPGP signature packet (RFC 4880) stored in an RPM header
-// tag (RPMTAG_PGP or RPMTAG_RSAHEADER) and returns a human-readable string
-// matching rpm's %{...:pgpsig} format.
+// parsePGP parses an OpenPGP signature packet (RFC 4880, RFC 9580) stored in an RPM header
+// tag (RPMTAG_PGP, RPMTAG_RSAHEADER or a decoded RPMTAG_OPENPGP entry) and returns a
+// human-readable string matching rpm's %{...:pgpsig} format.
 func parsePGP(ie indexEntry) (string, error) {
 	if len(ie.Data) < 4 {
 		return "", nil
@@ -362,8 +410,8 @@ func parsePGP(ie indexEntry) (string, error) {
 	switch version {
 	case 3:
 		return parsePGPv3(r)
-	case 4:
-		return parsePGPv4(r)
+	case 4, 6:
+		return parsePGPv4(r, version)
 	default:
 		return "", nil
 	}
@@ -391,11 +439,13 @@ func parsePGPv3(r io.Reader) (string, error) {
 	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKey, hash, pkgDate, sig.KeyID), nil
 }
 
-// parsePGPv4 parses a PGP v4 signature body (after the version byte).
+// parsePGPv4 parses a PGP v4 or v6 signature body (after the version byte).
 // V4 layout: sigType(1) pubKeyAlgo(1) hashAlgo(1) hashedSubLen(2) hashedSubs(N)
 //
 //	unhashedSubLen(2) unhashedSubs(N) ...
-func parsePGPv4(r io.Reader) (string, error) {
+//
+// V6 (RFC 9580 Section 5.2.3) is the same except subpacket lengths are 4 bytes.
+func parsePGPv4(r *bytes.Reader, version uint8) (string, error) {
 	var header struct {
 		SigType    uint8
 		PubKeyAlgo uint8
@@ -410,13 +460,16 @@ func parsePGPv4(r io.Reader) (string, error) {
 
 	// Process hashed and unhashed subpacket areas
 	for i := 0; i < 2; i++ {
-		var subLen uint16
-		if err := binary.Read(r, binary.BigEndian, &subLen); err != nil {
-			return "", fmt.Errorf("invalid PGP v4 subpacket length: %w", err)
+		subLen, err := readSubpacketAreaLen(r, version)
+		if err != nil {
+			return "", fmt.Errorf("invalid PGP v%d subpacket length: %w", version, err)
+		}
+		if subLen > r.Len() {
+			return "", fmt.Errorf("invalid PGP v%d subpacket length: %d exceeds remaining %d bytes", version, subLen, r.Len())
 		}
 		subData := make([]byte, subLen)
 		if _, err := io.ReadFull(r, subData); err != nil {
-			return "", fmt.Errorf("invalid PGP v4 subpacket data: %w", err)
+			return "", fmt.Errorf("invalid PGP v%d subpacket data: %w", version, err)
 		}
 		parsePGPv4Subpackets(subData, &keyID, &date)
 	}
@@ -426,6 +479,17 @@ func parsePGPv4(r io.Reader) (string, error) {
 	pkgDate := time.Unix(date, 0).UTC().Format("Mon Jan _2 15:04:05 2006")
 
 	return fmt.Sprintf("%s/%s, %s, Key ID %x", pubKey, hash, pkgDate, keyID), nil
+}
+
+func readSubpacketAreaLen(r io.Reader, version uint8) (int, error) {
+	if version == 6 {
+		var n uint32
+		err := binary.Read(r, binary.BigEndian, &n)
+		return int(n), err
+	}
+	var n uint16
+	err := binary.Read(r, binary.BigEndian, &n)
+	return int(n), err
 }
 
 // PGP v4 subpacket types (RFC 4880 Section 5.2.3.1)
@@ -482,10 +546,15 @@ func parsePGPv4Subpackets(data []byte, keyID *[8]byte, date *int64) {
 				hasExplicitKeyID = true
 			}
 		case pgpSubpacketIssuerFingerprint:
-			// version(1) + fingerprint(20 for v4, 32 for v5); key ID = last 8 bytes.
+			// version(1) + fingerprint(20 for v4, 32 for v5/v6); the key ID is the last
+			// 8 bytes of a v4 fingerprint and the first 8 bytes of a v5/v6 fingerprint.
 			// Only use as fallback when no explicit Issuer Key ID subpacket is present.
 			if !hasExplicitKeyID && len(spBody) >= 9 {
-				copy(keyID[:], spBody[len(spBody)-8:])
+				if spBody[0] >= 5 {
+					copy(keyID[:], spBody[1:9])
+				} else {
+					copy(keyID[:], spBody[len(spBody)-8:])
+				}
 			}
 		}
 	}

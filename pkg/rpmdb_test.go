@@ -3,6 +3,7 @@ package rpmdb
 //go:generate go run ./internal/generate
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"testing"
@@ -260,6 +261,38 @@ func Test_parseRSA(t *testing.T) {
 			},
 			want: "RSA/SHA256, Tue Jan  2 16:45:56 2024, Key ID 40bca2b408b40d20",
 		},
+		{
+			// $ docker run --rm amazonlinux:2023@sha256:8ed3c0a996841537f75607e7d1de2114d8150391f75792e8da9268738547e73f rpm -q bash --qf '%{RSAHEADER:pgpsig}\n'
+			//   RSA/SHA512, Sat Jan 28 22:34:22 2023, Key ID e951904ad832c631
+			name: "RSA/SHA512 header from amazonlinux 2023 bash",
+			ie: indexEntry{
+				Data: func() []byte {
+					h := "c2c1bb0400010a006f058263d5a2ee0910e951904ad832c631471400000000001e002073616c74406e6f746174696f6e732e736571756f69612d7067702e6f7267c8f3bf7971428a9cd228cdc6b7dd51a256a8ecc49f3331db795b1b86ffe58857162104b21c50fa44a99720eaa72f7fe951904ad832c631000026680fff7297b679978ff9afaf8af6c8f10fdb531bd4df95cde0c3683920c0f9f5b321e22260efd668f7ac87d16a393cca309daf3325a0d170e7e1c11588868193035c2e3851f6785f7f06e1b782e6853e38f3acde999ebb974a6e8f3cbc1b1e081aade4bdcbe2cc5ee830efb5ddff8c9ac03bca592bc38223b34caecc987c6daf5d0318e89ba4addc90b35873f0d8db6c3d3b4337d1ec7aae875eedee46be0a0060a3b5b215ec1889f1977b2eea600d8bc07c1428020c518f775f3bfac06ce7024c45069da4550e698a132103b29cbf3a395602656b7bc73125155a03c75da9462839afdee7f6b2e0df4ca31701bc83053ac1bf1af612f5e97a653b04d55a4726f8d3c98a5ad83f18b1ec83c940acbf6c7152d7757442dd4e1e4aecc2ef827ce6a2471efe3786e9028bb59d06745080456b9025904e2eb8993343b3bfe2476531239d58160e9b4bbcdf3bd012a430dd189dbda53b003610ce24e97e3fe8c749cf21e51ef528e4e8b3eff3f545d69a3f5240e6ce5fc3fe3d1aa5a1ca6b7270491b0b7d490807b49705a2d8dc2719a203e741e9548e133576eda62a68c359b5249540a720fc3339c7fe73c60fc9dcc8f6ab20e3227dc4a977305cb6e2329a1903b9c99c47127c637a1712e223e820e15d58a4bbbab75eb070ee466b22c1a25a09d179606bb4d5098a4c9b351bff74b6a913d209f861ee78002fa462090771498ac44c7757"
+					b, err := hex.DecodeString(h)
+					if err != nil {
+						t.Fatalf("failed to decode hex string: %v", err)
+					}
+					return b
+				}(),
+			},
+			want: "RSA/SHA512, Sat Jan 28 22:34:22 2023, Key ID e951904ad832c631",
+		},
+		{
+			// $ docker run --rm registry.access.redhat.com/ubi10/ubi@sha256:ad0d8e4fcd4c83cf4a2d025de402f010fd068e43f253d0a57b5681d1ad45f044 rpm -q openssl-libs --qf '[%{OPENPGP:pgpsig}\n]'
+			//   RSA/SHA256, Mon Sep 21 12:03:55 2026, Key ID 199e2f91fd431d51
+			//   ML-DSA-87+Ed448/SHA512, Mon Sep 21 12:03:55 2026, Key ID fcd355b305707a62
+			name: "v6 ML-DSA-87+Ed448 signature from ubi10 openssl-libs",
+			ie: indexEntry{
+				Data: func() []byte {
+					b, err := base64.StdEncoding.DecodeString(ubi10OpensslLibsMLDSASig)
+					if err != nil {
+						t.Fatalf("failed to decode base64 string: %v", err)
+					}
+					return b
+				}(),
+			},
+			want: "ML-DSA-87+Ed448/SHA512, Mon Sep 21 12:03:55 2026, Key ID fcd355b305707a62",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -271,6 +304,67 @@ func Test_parseRSA(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// $ docker run --rm registry.access.redhat.com/ubi10/ubi@sha256:ad0d8e4fcd4c83cf4a2d025de402f010fd068e43f253d0a57b5681d1ad45f044 rpm -q openssl-libs --qf '[%{OPENPGP}\n]'
+const (
+	ubi10OpensslLibsRSASig   = "iQIcBAABCAAGBQJqsR0rAAoJEBmeL5H9Qx1RO1sP/1y5k0jcJi9u1yEwEYEr3UtKIQty9IuUe9fhXNGp88HJsVCDur3kOkiOpHi4cQCyyEZvInLBqORVTIVHHvRFswnVKDou9ssfBYdWAhVa31QOLAvFfm+4qfAt7nDJbDltst1n0DZqApO8Rb2h1xTni64eI4zSZuxT6d9ntGwEe4TQVY+1RdTEJvZrnl1Cgz7y3pDCXEkNm5QNcSNmooqgCP2VsChpuys1RT5h60lzOIo7r8R0MdikTGUIjs+I4ENugEwcA8M230qjbcnqdHjOn0L1Qv4DjpD64wjx3JUaT8JosGSty/Cc3Vo7iQJ9LFoFmG/AO6SNiR8yWa/mtPyFwazyxA4ZmYqfGuXAfrb30redcBqjFFkG3gFNxnOzs1pYd3K7kVPWwVFMQQsz8i4dxjihMAoKSQBS3ujG8Dp4CoJiCfX+4NzXOYhVM2DO2yT0OJP31yAwPP4eAKpgvTnhAruAeRDqlWRfTgv8K3eoWSrk/cBCTKcCL3X33sn1ptnIUUwKY/Epo90c3hpA2Hi/3/jWUT9gJM3LXO3kIlLnIH+jbfizoR+WsVdw865cbGtYGAI357DZojJMEKLh2r6GcaQXOf1sJy7q+Y1IklfGaJiVql9LZuKgo2Ldm0JGDgg51QsrT+t5tPMrayXGRRE++LudfrgPCjYsQUZcWXlE8NoO"
+	ubi10OpensslLibsMLDSASig = "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"
+)
+
+func TestGetNEVRA_OpenPGP(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []indexEntry
+		want    []string
+		wantErr require.ErrorAssertionFunc
+	}{
+		{
+			name: "all openpgp signatures are parsed",
+			entries: []indexEntry{
+				stringEntry(RPMTAG_NAME, "openssl-libs"),
+				{
+					Info: entryInfo{Tag: RPMTAG_OPENPGP, Type: RPM_STRING_ARRAY_TYPE},
+					Data: []byte(ubi10OpensslLibsRSASig + "\x00" + ubi10OpensslLibsMLDSASig + "\x00"),
+				},
+			},
+			want: []string{
+				"RSA/SHA256, Mon Sep 21 12:03:55 2026, Key ID 199e2f91fd431d51",
+				"ML-DSA-87+Ed448/SHA512, Mon Sep 21 12:03:55 2026, Key ID fcd355b305707a62",
+			},
+		},
+		{
+			name:    "absent tag leaves field empty",
+			entries: []indexEntry{stringEntry(RPMTAG_NAME, "x")},
+		},
+		{
+			name: "wrong type errors",
+			entries: []indexEntry{
+				{Info: entryInfo{Tag: RPMTAG_OPENPGP, Type: RPM_BIN_TYPE}, Data: []byte{0x89, 0x02, 0x1c, 0x04}},
+			},
+			wantErr: require.Error,
+		},
+		{
+			name: "invalid base64 errors",
+			entries: []indexEntry{
+				{Info: entryInfo{Tag: RPMTAG_OPENPGP, Type: RPM_STRING_ARRAY_TYPE}, Data: []byte("not*base64\x00")},
+			},
+			wantErr: require.Error,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantErr == nil {
+				tt.wantErr = require.NoError
+			}
+			info, err := getNEVRA(tt.entries)
+			tt.wantErr(t, err)
+			if err != nil {
+				return
+			}
+			assert.Equal(t, tt.want, info.OpenPGP)
 		})
 	}
 }
